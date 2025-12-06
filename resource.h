@@ -1,1 +1,2 @@
 #define IDI_ICON1 101
+#define IDB_MARGUERITE 102
