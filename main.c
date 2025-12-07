@@ -1,18 +1,26 @@
+#define _WIN32_IE 0x0300
+#define _WIN32_WINNT 0x0501
 #include <windows.h>
 #include <tchar.h>
 #include <commctrl.h>
+#include <stdlib.h>
 #include "resource.h"
+
+#pragma execution_character_set("utf-8")
 
 // Variables globales
 HWND hProgressBar;
 HWND hStatusLabel;
 HWND hLogEdit;
+HWND hUpdateButton;
+HWND hQuitButton;
 HBITMAP hMargueriteBitmap;
+BOOL bUpdateInProgress = FALSE;
 
 // Prototypes
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 DWORD WINAPI UpdateThread(LPVOID lpParam);
-void LogMessage(HWND hwnd, LPCTSTR message);
+void LogMessage(HWND hwnd, LPCSTR message);
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
 {
@@ -30,9 +38,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     RegisterClass(&wc);
 
     HWND hwnd = CreateWindowEx(
-        0, CLASS_NAME, _T("La Meuh - Mises à jour"),
+        0, CLASS_NAME, "La Meuh - Mises a jour",
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
-        CW_USEDEFAULT, CW_USEDEFAULT, 400, 300,
+        CW_USEDEFAULT, CW_USEDEFAULT, 450, 280,
         NULL, NULL, hInstance, NULL
     );
     if (hwnd == NULL) return 0;
@@ -56,55 +64,87 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
     {
         case WM_CREATE:
         {
-            // Charge l'image depuis les ressources
+            // Charge l'image depuis les ressources (taille reduite 80x80)
             hMargueriteBitmap = (HBITMAP)LoadImage(
                 GetModuleHandle(NULL),
                 MAKEINTRESOURCE(IDB_MARGUERITE),
-                IMAGE_BITMAP, 0, 0, LR_CREATEDIBSECTION
+                IMAGE_BITMAP, 80, 80, LR_CREATEDIBSECTION
             );
-            if (!hMargueriteBitmap)
-                MessageBox(hwnd, _T("Erreur interne : impossible de charger l'image embarquée."), _T("Erreur"), MB_ICONERROR);
 
-            CreateWindow(
-                "STATIC", NULL, WS_VISIBLE | WS_CHILD | SS_BITMAP,
-                10, 10, 100, 100, hwnd, NULL, NULL, NULL
+            // Image a gauche
+            HWND hImage = CreateWindow(
+                "STATIC", NULL, WS_VISIBLE | WS_CHILD | SS_BITMAP | SS_CENTERIMAGE,
+                15, 15, 80, 80, hwnd, (HMENU)100, NULL, NULL
             );
-            SendDlgItemMessage(hwnd, 0, STM_SETIMAGE, IMAGE_BITMAP, (LPARAM)hMargueriteBitmap);
+            SendMessage(hImage, STM_SETIMAGE, IMAGE_BITMAP, (LPARAM)hMargueriteBitmap);
 
+            // Status label a droite de l'image
             hStatusLabel = CreateWindow(
-                "STATIC", _T("Prêt à mettre à jour !"),
-                WS_VISIBLE | WS_CHILD | SS_CENTER,
-                10, 120, 360, 20, hwnd, NULL, NULL, NULL
+                "STATIC", "Pret a mettre a jour !",
+                WS_VISIBLE | WS_CHILD | SS_LEFT,
+                110, 30, 310, 40, hwnd, NULL, NULL, NULL
             );
 
+            // Zone de log
             hLogEdit = CreateWindow(
                 "EDIT", NULL,
-                WS_VISIBLE | WS_CHILD | WS_VSCROLL | ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY,
-                10, 50, 360, 60, hwnd, (HMENU)2, NULL, NULL
+                WS_VISIBLE | WS_CHILD | WS_VSCROLL | WS_BORDER | ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY,
+                15, 100, 405, 70, hwnd, (HMENU)2, NULL, NULL
             );
 
+            // Barre de progression
             hProgressBar = CreateWindowEx(
                 0, PROGRESS_CLASS, NULL,
                 WS_VISIBLE | WS_CHILD | PBS_SMOOTH,
-                10, 210, 360, 20, hwnd, NULL, NULL, NULL
+                15, 175, 405, 22, hwnd, NULL, NULL, NULL
             );
             SendMessage(hProgressBar, PBM_SETRANGE, 0, MAKELPARAM(0, 100));
             SendMessage(hProgressBar, PBM_SETSTEP, 1, 0);
 
-            CreateWindow(
-                "BUTTON", _T("Mettre à jour"),
+            // Bouton Mettre a jour
+            hUpdateButton = CreateWindow(
+                "BUTTON", "Mettre a jour",
                 WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
-                10, 240, 360, 30, hwnd, (HMENU)1, NULL, NULL
+                15, 205, 200, 30, hwnd, (HMENU)1, NULL, NULL
+            );
+
+            // Bouton Quitter
+            hQuitButton = CreateWindow(
+                "BUTTON", "Quitter",
+                WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON,
+                220, 205, 200, 30, hwnd, (HMENU)3, NULL, NULL
             );
             break;
         }
         case WM_COMMAND:
         {
-            if (LOWORD(wParam) == 1)
+            if (LOWORD(wParam) == 1) // Bouton Mettre a jour
             {
-                SetWindowText(hStatusLabel, _T("Recherche de mises à jour..."));
-                SendMessage(hLogEdit, WM_SETTEXT, 0, (LPARAM)_T(""));
-                CreateThread(NULL, 0, UpdateThread, hwnd, 0, NULL);
+                if (!bUpdateInProgress)
+                {
+                    bUpdateInProgress = TRUE;
+                    EnableWindow(hUpdateButton, FALSE);
+                    SetWindowText(hUpdateButton, "En cours...");
+                    SetWindowText(hStatusLabel, "Recherche de mises a jour...");
+                    SendMessage(hLogEdit, WM_SETTEXT, 0, (LPARAM)"");
+                    SendMessage(hProgressBar, PBM_SETPOS, 0, 0);
+                    CreateThread(NULL, 0, UpdateThread, hwnd, 0, NULL);
+                }
+            }
+            else if (LOWORD(wParam) == 3) // Bouton Quitter
+            {
+                if (bUpdateInProgress)
+                {
+                    if (MessageBox(hwnd, "Une mise a jour est en cours.\nVoulez-vous vraiment quitter ?",
+                                   "Confirmation", MB_YESNO | MB_ICONQUESTION) == IDYES)
+                    {
+                        DestroyWindow(hwnd);
+                    }
+                }
+                else
+                {
+                    DestroyWindow(hwnd);
+                }
             }
             break;
         }
@@ -118,84 +158,128 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
     return DefWindowProc(hwnd, uMsg, wParam, lParam);
 }
 
-void LogMessage(HWND hwnd, LPCTSTR message)
+void LogMessage(HWND hwnd, LPCSTR message)
 {
-    SendMessage(hLogEdit, EM_REPLACESEL, 0, (LPARAM)message);
-    SendMessage(hLogEdit, EM_REPLACESEL, 0, (LPARAM)_T("\r\n"));
+    // Convertir UTF-8 vers ANSI pour affichage correct
+    // D'abord UTF-8 -> Unicode (Wide)
+    int wlen = MultiByteToWideChar(CP_UTF8, 0, message, -1, NULL, 0);
+    if (wlen > 0)
+    {
+        WCHAR* wbuffer = (WCHAR*)malloc(wlen * sizeof(WCHAR));
+        if (wbuffer)
+        {
+            MultiByteToWideChar(CP_UTF8, 0, message, -1, wbuffer, wlen);
+
+            // Puis Unicode -> ANSI (page de code locale)
+            int alen = WideCharToMultiByte(CP_ACP, 0, wbuffer, -1, NULL, 0, NULL, NULL);
+            if (alen > 0)
+            {
+                char* abuffer = (char*)malloc(alen);
+                if (abuffer)
+                {
+                    WideCharToMultiByte(CP_ACP, 0, wbuffer, -1, abuffer, alen, NULL, NULL);
+                    SendMessageA(hLogEdit, EM_REPLACESEL, 0, (LPARAM)abuffer);
+                    SendMessageA(hLogEdit, EM_REPLACESEL, 0, (LPARAM)"\r\n");
+                    free(abuffer);
+                }
+            }
+            free(wbuffer);
+        }
+    }
 }
 
 DWORD WINAPI UpdateThread(LPVOID lpParam)
 {
     HWND hwnd = (HWND)lpParam;
     SendMessage(hProgressBar, PBM_SETPOS, 0, 0);
-    LogMessage(hwnd, _T("Vérification de winget..."));
+    LogMessage(hwnd, "Verification de winget...");
 
-    // Vérifier si winget existe
+    // Verifier si winget existe
     if (system("where winget >nul 2>&1") != 0)
     {
-        SetWindowText(hStatusLabel, _T("La meuh n'a pas pu mettre à jour vos programmes. Votre PC n'est pas sous Windows 11 ou alors il rencontre un problème. Veuillez contacter votre informaticien local."));
+        SetWindowText(hStatusLabel, "Erreur: winget non trouve. Windows 11 requis.");
         return 1;
     }
 
-    // Lancer winget en caché et capturer la sortie
+    LogMessage(hwnd, "Lancement des mises a jour...");
+
+    // Lancer winget en cache et capturer la sortie
     SECURITY_ATTRIBUTES sa = {sizeof(SECURITY_ATTRIBUTES), NULL, TRUE};
     HANDLE hRead, hWrite;
     if (!CreatePipe(&hRead, &hWrite, &sa, 0))
     {
-        SetWindowText(hStatusLabel, _T("Erreur interne."));
+        SetWindowText(hStatusLabel, "Erreur interne.");
+        bUpdateInProgress = FALSE;
+        EnableWindow(hUpdateButton, TRUE);
+        SetWindowText(hUpdateButton, "Mettre a jour");
         return 1;
     }
 
-    STARTUPINFO si = {sizeof(si)};
+    STARTUPINFOA si = {sizeof(si)};
     si.dwFlags = STARTF_USESHOWWINDOW | STARTF_USESTDHANDLES;
     si.wShowWindow = SW_HIDE;
     si.hStdOutput = hWrite;
     si.hStdError = hWrite;
 
     PROCESS_INFORMATION pi;
-    TCHAR cmd[] = _T("winget upgrade --all --accept-package-agreements --accept-source-agreements");
+    char cmd[] = "winget upgrade --all --accept-package-agreements --accept-source-agreements --disable-interactivity";
 
-    if (!CreateProcess(NULL, cmd, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi))
+    if (!CreateProcessA(NULL, cmd, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi))
     {
         CloseHandle(hRead);
         CloseHandle(hWrite);
-        SetWindowText(hStatusLabel, _T("Erreur lors du lancement de winget."));
+        SetWindowText(hStatusLabel, "Erreur lors du lancement de winget.");
+        bUpdateInProgress = FALSE;
+        EnableWindow(hUpdateButton, TRUE);
+        SetWindowText(hUpdateButton, "Mettre a jour");
         return 1;
     }
 
     CloseHandle(hWrite);
 
+    SetWindowText(hStatusLabel, "Mise a jour en cours...");
+
     char buffer[4096];
     DWORD bytesRead;
-    while (ReadFile(hRead, buffer, sizeof(buffer), &bytesRead, NULL) && bytesRead != 0)
+    while (ReadFile(hRead, buffer, sizeof(buffer) - 1, &bytesRead, NULL) && bytesRead != 0)
     {
         buffer[bytesRead] = '\0';
-        // Chercher des lignes intéressantes (ex: "Trouvé", "Installation")
-        if (strstr(buffer, "Trouvé") || strstr(buffer, "Installation") || strstr(buffer, "Mise à jour"))
+        // Chercher des lignes interessantes
+        if (strstr(buffer, "Trouv") || strstr(buffer, "Install") ||
+            strstr(buffer, "Mise") || strstr(buffer, "Successfully") ||
+            strstr(buffer, "Downloading") || strstr(buffer, "Starting") ||
+            strstr(buffer, "Found"))
         {
-            TCHAR wbuffer[4096];
-            MultiByteToWideChar(CP_ACP, 0, buffer, -1, wbuffer, sizeof(wbuffer)/sizeof(TCHAR));
-            LogMessage(hwnd, wbuffer);
+            LogMessage(hwnd, buffer);
             SendMessage(hProgressBar, PBM_STEPIT, 0, 0);
         }
     }
 
     CloseHandle(hRead);
     WaitForSingleObject(pi.hProcess, INFINITE);
+
     DWORD exitCode;
     GetExitCodeProcess(pi.hProcess, &exitCode);
     CloseHandle(pi.hProcess);
     CloseHandle(pi.hThread);
 
+    SendMessage(hProgressBar, PBM_SETPOS, 100, 0);
+
     if (exitCode == 0)
     {
-        SetWindowText(hStatusLabel, _T("Tous les programmes sont à jour !"));
-        SendMessage(hProgressBar, PBM_SETPOS, 100, 0);
+        SetWindowText(hStatusLabel, "Tous les programmes sont a jour !");
+        LogMessage(hwnd, "Mise a jour terminee avec succes !");
     }
     else
     {
-        SetWindowText(hStatusLabel, _T("Aucune mise à jour disponible !"));
+        SetWindowText(hStatusLabel, "Mise a jour terminee.");
+        LogMessage(hwnd, "Mise a jour terminee.");
     }
+
+    // Reactiver le bouton
+    bUpdateInProgress = FALSE;
+    EnableWindow(hUpdateButton, TRUE);
+    SetWindowText(hUpdateButton, "Mettre a jour");
 
     return 0;
 }
