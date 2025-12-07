@@ -36,9 +36,10 @@ Clone ce dépôt ou télécharge le `.zip` en cliquant sur **"Code" → "Downloa
 
 ### 🐄 Informations supplémentaires :
 
-- Si `winget` est absent, un message d'erreur s'affichera.
+- Si `winget` est absent, un message d'erreur s'affichera !
 - **Aucune dépendance externe** : un seul fichier `.exe` à distribuer !
-- Si vous ne voulez pas vous amuser à compiler le code vous même, ce qui est compréhensible, vous pouvez simplement télécharger le programme la_meuh.exe ! Le reste est à votre disposition pour vos propres modifications !
+- Si vous ne voulez pas vous amuser à compiler le code vous même, ce qui est compréhensible, vous pouvez simplement télécharger le programme la_meuh.exe ! Le reste est à votre disposition pour vos propres modifications (voir le dossier src) !
+- Il est aussi possible que votre environnement ne permette pas la compilation, dans ce cas, le programme la_meuh.exe est disponible en téléchargement direct, comme mentionné plus haut !
 
 ---
 
